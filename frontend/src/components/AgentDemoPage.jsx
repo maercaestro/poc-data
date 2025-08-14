@@ -1,115 +1,155 @@
 import ChatBox from './ChatBox'
+import { useState, useEffect } from 'react'
 
 function AgentDemoPage() {
+  const [selectedQuery, setSelectedQuery] = useState(null);
+  const [menuData, setMenuData] = useState(null);
+  const [hasMenuData, setHasMenuData] = useState(false);
+
+  // Check for menu data on component mount
+  useEffect(() => {
+    const storedData = localStorage.getItem('agentData');
+    if (storedData) {
+      try {
+        const data = JSON.parse(storedData);
+        setMenuData(data);
+        setHasMenuData(true);
+      } catch (e) {
+        console.error('Failed to parse stored menu data:', e);
+        setHasMenuData(false);
+      }
+    } else {
+      setHasMenuData(false);
+    }
+  }, []);
+
+  // Pass query to ChatBox
+  const handleQueryClick = (query) => {
+    setSelectedQuery(query);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Page Header */}
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4" style={{ color: '#192A56' }}>
-            AI Agent Demo
+            CANTA Restaurant Server
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Experience the power of our AI assistant. Ask questions about menu optimization, 
-            pricing strategies, and performance insights to see how our agent can help your business.
+            Welcome to our restaurant! Our AI server is here to help you discover the perfect meal 
+            from our menu and make your dining experience memorable.
           </p>
         </div>
 
-        {/* Demo Features */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Instant Insights</h3>
-            <p className="text-gray-600 text-sm">Get immediate answers about menu performance and optimization opportunities.</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Data Analysis</h3>
-            <p className="text-gray-600 text-sm">Advanced analytics on sales patterns, customer preferences, and profitability.</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Smart Recommendations</h3>
-            <p className="text-gray-600 text-sm">Receive actionable suggestions for menu improvements and pricing strategies.</p>
-          </div>
-        </div>
-
-        {/* Chat Interface */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Chat Box - Takes up 2 columns */}
-          <div className="lg:col-span-2">
-            <ChatBox />
-          </div>
-
-          {/* Sample Queries Sidebar */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Try These Queries</h3>
-              <div className="space-y-3">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-700 font-medium">"What are my top 5 most profitable items?"</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-700 font-medium">"Which items should I remove from the menu?"</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-700 font-medium">"How can I optimize my pricing strategy?"</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-700 font-medium">"Show me seasonal trends in my sales data"</p>
-                </div>
+        {!hasMenuData ? (
+          // No Menu Data - Show Instructions
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+              <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0L4.18 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
               </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Agent Capabilities</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">Menu Not Loaded</h3>
+              <p className="text-gray-600 mb-6">
+                Our AI server needs to know what's on the menu before helping you order! 
+                Please upload and process a menu image in the Data Annotation page first.
+              </p>
               <div className="space-y-4">
-                <div className="flex items-start space-x-3">
-                  <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Menu Analysis</p>
-                    <p className="text-xs text-gray-600">Analyze item performance and popularity</p>
+                <div className="bg-gray-50 rounded-lg p-4 text-left">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                    <span className="font-medium">Go to Data Annotation page</span>
+                  </div>
+                  <div className="flex items-center space-x-3 mb-2">
+                    <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                    <span className="font-medium">Upload a menu image</span>
+                  </div>
+                  <div className="flex items-center space-x-3 mb-2">
+                    <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+                    <span className="font-medium">Click "Pass to Agent"</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">4</span>
+                    <span className="font-medium">Return here to start ordering!</span>
                   </div>
                 </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Pricing Optimization</p>
-                    <p className="text-xs text-gray-600">Suggest optimal pricing strategies</p>
+                <button
+                  onClick={() => window.location.hash = '#data'}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                >
+                  Go to Data Annotation
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          // Menu Data Available - Show Restaurant Interface
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            {/* Chat Box - Takes up 3 columns */}
+            <div className="lg:col-span-3">
+              <ChatBox selectedQuery={selectedQuery} onQueryProcessed={() => setSelectedQuery(null)} />
+            </div>
+
+            {/* Menu Summary Sidebar */}
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Today's Menu</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Total Items</span>
+                    <span className="font-semibold text-gray-900">{menuData?.items?.length || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Menu Source</span>
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">{menuData?.source || 'AI Detected'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Last Updated</span>
+                    <span className="text-xs text-gray-500">
+                      {menuData?.timestamp ? new Date(menuData.timestamp).toLocaleDateString() : 'Today'}
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Trend Analysis</p>
-                    <p className="text-xs text-gray-600">Identify sales patterns and trends</p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Server Capabilities</h3>
+                <div className="space-y-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Menu Recommendations</p>
+                      <p className="text-xs text-gray-600">Suggest the best items for you</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Cost Analysis</p>
-                    <p className="text-xs text-gray-600">Calculate margins and profitability</p>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Dietary Assistance</p>
+                      <p className="text-xs text-gray-600">Help with allergies and preferences</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Order Taking</p>
+                      <p className="text-xs text-gray-600">Process your complete order</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Food Knowledge</p>
+                      <p className="text-xs text-gray-600">Ingredients and preparation details</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

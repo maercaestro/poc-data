@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { listPage, updateItem, exportCatalog, detectItemsInImage } from '../lib/api';
-import Toolbar from './Toolbar';
+import { listPage, updateItem, createItem, exportCatalog, detectItemsInImage, storeMenuData } from '../lib/api';
 
 // ItemCard component for editing individual menu items
 const ItemCard = ({ item, onSave, onVerify }) => {
-  const [isEditing, setIsEditing] = useState(false);
+  // Start in edit mode for new manual items (those with manual_ prefix)
+  const [isEditing, setIsEditing] = useState(item.id.toString().startsWith('manual_'));
   const [editedItem, setEditedItem] = useState({ ...item });
   const [saving, setSaving] = useState(false);
 
@@ -44,6 +44,11 @@ const ItemCard = ({ item, onSave, onVerify }) => {
           }`}>
             {item.status}
           </span>
+          {item.id.toString().startsWith('manual_') && (
+            <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+              Manual
+            </span>
+          )}
           <span className="text-xs text-gray-500">
             {item.section}
           </span>
@@ -233,13 +238,15 @@ const DataAnnotationPage = () => {
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [activeItemId, setActiveItemId] = useState(null);
-  const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
+  const [activeTab, setActiveTab] = useState('response');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isPassingToAgent, setIsPassingToAgent] = useState(false);
 
   // Load page data
   useEffect(() => {
@@ -261,19 +268,6 @@ const DataAnnotationPage = () => {
     loadData();
   }, [sourceId, page]);
 
-  // Compute filtered items
-  const filteredItems = useMemo(() => {
-    if (!data?.items) return [];
-    
-    return data.items.filter(item => {
-      if (filter === 'all') return true;
-      if (filter === 'needs') return item.status !== 'verified' || item.confidence < 0.75;
-      if (filter === 'edited') return item.status === 'edited';
-      if (filter === 'verified') return item.status === 'verified';
-      return true;
-    });
-  }, [data?.items, filter]);
-
   // Handlers
   const handleSelectItem = (id) => {
     setActiveItemId(id);
@@ -281,17 +275,36 @@ const DataAnnotationPage = () => {
 
   const handleSaveItem = async (id, patch) => {
     try {
-      const updatedItem = await updateItem(id, patch);
+      let updatedItem;
       
-      // Update local state
-      setData(prevData => ({
-        ...prevData,
-        items: prevData.items.map(item => 
-          item.id === id 
-            ? { ...updatedItem, status: updatedItem.status === 'verified' ? 'verified' : 'edited' }
-            : item
-        )
-      }));
+      // Check if this is a new manual item (temporary ID)
+      if (id.toString().startsWith('manual_')) {
+        // Create new item in backend
+        updatedItem = await createItem(sourceId, page, patch);
+        
+        // Update local state - replace the temporary item with the real one
+        setData(prevData => ({
+          ...prevData,
+          items: prevData.items.map(item => 
+            item.id === id 
+              ? { ...updatedItem, status: 'edited' }
+              : item
+          )
+        }));
+      } else {
+        // Update existing item
+        updatedItem = await updateItem(id, patch);
+        
+        // Update local state
+        setData(prevData => ({
+          ...prevData,
+          items: prevData.items.map(item => 
+            item.id === id 
+              ? { ...updatedItem, status: updatedItem.status === 'verified' ? 'verified' : 'edited' }
+              : item
+          )
+        }));
+      }
     } catch (err) {
       throw new Error(`Failed to save item: ${err.message}`);
     }
@@ -313,38 +326,39 @@ const DataAnnotationPage = () => {
     }
   };
 
-  const handleExport = async () => {
-    try {
-      const exportData = await exportCatalog(sourceId);
-      // Create download
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `catalog-${sourceId}-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert(`Export failed: ${err.message}`);
-    }
-  };
+  // Add new manual item
+  const handleAddNewItem = () => {
+    const newItem = {
+      id: `manual_${Date.now()}`, // Temporary ID for new items
+      name: '',
+      brand: '',
+      price: { value: null, currency: 'MYR' },
+      size: { value: '', unit: '' },
+      tags: [],
+      section: 'Manual Entry',
+      status: 'edited',
+      confidence: 1.0,
+      bbox_x: 0,
+      bbox_y: 0,
+      bbox_w: 100,
+      bbox_h: 50,
+      raw_text: 'Manually added item',
+      additionalContext: ''
+    };
 
-  const handleBulkVerify = async (ids) => {
-    try {
-      await Promise.all(ids.map(id => updateItem(id, { status: 'verified' })));
-      
-      // Update local state
-      setData(prevData => ({
-        ...prevData,
-        items: prevData.items.map(item => 
-          ids.includes(item.id) ? { ...item, status: 'verified' } : item
-        )
-      }));
-    } catch (err) {
-      alert(`Bulk verify failed: ${err.message}`);
-    }
+    // Add the new item to the local state
+    setData(prevData => ({
+      ...prevData,
+      items: [...(prevData?.items || []), newItem]
+    }));
+
+    // Scroll to the new item and start editing it
+    setTimeout(() => {
+      const element = document.getElementById(`item_${newItem.id}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   // File upload handler with AI vision processing
@@ -455,6 +469,95 @@ const DataAnnotationPage = () => {
     }
   };
 
+  // Export detected items as JSON
+  const handleExportJSON = () => {
+    if (!data?.items || data.items.length === 0) {
+      alert('No data to export');
+      return;
+    }
+    
+    setIsExporting(true);
+    
+    try {
+      const exportData = {
+        source: "AI Vision Analysis",
+        timestamp: new Date().toISOString(),
+        image_source: uploadedImage ? 'uploaded' : 'demo',
+        ai_status: data.status,
+        total_items: data.items.length,
+        items: data.items,
+        parsed_menu: data.parsed_menu,
+        meta: {
+          extraction_method: "GPT-4o Vision",
+          schema_version: "canta.menu.v1",
+          export_version: "1.0"
+        }
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
+        type: 'application/json' 
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `menu-data-${new Date().toISOString().split('T')[0]}-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+    } catch (err) {
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Pass data to AI agent
+  const handlePassToAgent = async () => {
+    if (!data?.items || data.items.length === 0) {
+      alert('No data to pass to agent');
+      return;
+    }
+    
+    setIsPassingToAgent(true);
+    
+    try {
+      // Get current session from localStorage
+      const currentSession = localStorage.getItem('currentChatSession');
+      let sessionData = null;
+      
+      if (currentSession) {
+        sessionData = JSON.parse(currentSession);
+      }
+      
+      // If no session exists, generate a temporary session ID for menu storage
+      const sessionId = sessionData?.session_id || `temp_${Date.now()}`;
+      
+      // Store menu data in the database for the agent to access
+      await storeMenuData(sessionId, sourceId, page, {
+        items: data.items,
+        timestamp: new Date().toISOString(),
+        source: 'vision_analysis'
+      });
+      
+      // Also keep localStorage for backward compatibility
+      localStorage.setItem('agentData', JSON.stringify({
+        items: data.items,
+        timestamp: new Date().toISOString(),
+        source: 'vision_analysis'
+      }));
+      
+      setIsPassingToAgent(false);
+      alert(`Successfully passed ${data.items.length} items to the AI agent! The agent now has access to the menu data and can answer questions about the items using intelligent function calling.`);
+      
+    } catch (error) {
+      console.error('Error passing data to agent:', error);
+      setIsPassingToAgent(false);
+      alert(`Failed to pass data to agent: ${error.message}`);
+    }
+  };
+
   // Reset to demo data
   const handleUseDemoData = () => {
     setUploadedImage(null);
@@ -478,11 +581,6 @@ const DataAnnotationPage = () => {
     loadData();
   };
 
-  // Check if export should be disabled
-  const canExport = data?.items?.every(item => 
-    item.name && item.price?.value !== null
-  ) ?? false;
-
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto p-4">
@@ -505,19 +603,6 @@ const DataAnnotationPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-4">
-      <Toolbar
-        sourceId={sourceId}
-        page={page}
-        filter={filter}
-        onChangeSourceId={setSourceId}
-        onChangePage={setPage}
-        onFilterChange={setFilter}
-        onExport={handleExport}
-        onBulkVerify={handleBulkVerify}
-        canExport={canExport}
-        filteredItems={filteredItems}
-      />
-      
       {/* Upload Section */}
       <div className="mt-4 mb-4">
         <div className="bg-white rounded-lg border shadow-sm p-4">
@@ -605,101 +690,223 @@ const DataAnnotationPage = () => {
         </div>
         
         <div>
-          {/* AI Response Display */}
-          <div className="bg-white rounded-lg border shadow-sm p-4 h-fit max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold mb-4">AI Vision Response</h3>
-            
+          {/* AI Response & Data Cards - Tabbed Interface */}
+          <div className="bg-white rounded-lg border shadow-sm p-4 h-fit max-h-[80vh] overflow-hidden">
             {data?.ai_response ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    data.status === 'success' ? 'bg-green-100 text-green-800' :
-                    data.status === 'error' ? 'bg-red-100 text-red-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {data.status}
-                  </span>
-                  {uploadedImage && (
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                      GPT-4o Vision
-                    </span>
-                  )}
-                  {data?.items?.length > 0 && (
-                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
-                      {data.items.length} items detected
-                    </span>
-                  )}
-                </div>
-                
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">What the AI sees:</h4>
-                  <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                    {data.ai_response}
-                  </p>
-                </div>
-                
-                {/* Parse Error Display */}
-                {data.parse_error && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                    <h4 className="font-medium text-yellow-800 mb-1">JSON Parse Warning:</h4>
-                    <p className="text-yellow-700 text-sm">{data.parse_error}</p>
+              <>
+                {/* Tab Navigation */}
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setActiveTab('response')}
+                      className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                        activeTab === 'response'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      AI Response
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('data')}
+                      className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                        activeTab === 'data'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Data Cards ({data?.items?.length || 0})
+                    </button>
                   </div>
-                )}
-                
-                {/* Detected Items Section - Now inside AI Response */}
-                {data?.items && data.items.length > 0 && (
-                  <div className="border-t pt-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="font-semibold text-gray-900">Detected Menu Items</h4>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <span>{data.items.length} items found</span>
-                        {data.parsed_menu?.source && (
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                            {data.parsed_menu.source}
+                  
+                  {/* Action Buttons */}
+                  {data?.items && data.items.length > 0 && (
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={handlePassToAgent}
+                        disabled={isPassingToAgent}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors flex items-center space-x-2"
+                      >
+                        {isPassingToAgent ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Passing to Agent...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            <span>Pass to Agent</span>
+                          </>
+                        )}
+                      </button>
+                      
+                      <button
+                        onClick={handleExportJSON}
+                        disabled={isExporting}
+                        className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors flex items-center space-x-2"
+                      >
+                        {isExporting ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Exporting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Export JSON</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tab Content */}
+                <div className="overflow-y-auto max-h-[60vh]">
+                  {activeTab === 'response' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          data.status === 'success' ? 'bg-green-100 text-green-800' :
+                          data.status === 'error' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {data.status}
+                        </span>
+                        {uploadedImage && (
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                            GPT-4o Vision
+                          </span>
+                        )}
+                        {data?.items?.length > 0 && (
+                          <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                            {data.items.length} items detected
                           </span>
                         )}
                       </div>
+                      
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h4 className="font-medium text-gray-900 mb-2">What the AI sees:</h4>
+                        <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                          {data.ai_response}
+                        </p>
+                      </div>
+                      
+                      {/* Parse Error Display */}
+                      {data.parse_error && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <h4 className="font-medium text-yellow-800 mb-1">JSON Parse Warning:</h4>
+                          <p className="text-yellow-700 text-sm">{data.parse_error}</p>
+                        </div>
+                      )}
+                      
+                      {/* Raw Response (collapsible) */}
+                      {data.raw_response && data.raw_response !== data.ai_response && (
+                        <details className="bg-gray-100 rounded-lg p-4">
+                          <summary className="font-medium text-gray-700 cursor-pointer">Raw AI Response (Click to expand)</summary>
+                          <pre className="text-xs text-gray-600 mt-2 overflow-x-auto whitespace-pre-wrap">
+                            {data.raw_response}
+                          </pre>
+                        </details>
+                      )}
                     </div>
-                    
-                    <div className="space-y-3">
-                      {data.items.map((item) => (
-                        <ItemCard
-                          key={item.id}
-                          item={item}
-                          onSave={handleSaveItem}
-                          onVerify={handleVerifyItem}
-                        />
-                      ))}
+                  )}
+
+                  {activeTab === 'data' && (
+                    <div className="space-y-4">
+                      {data?.items && data.items.length > 0 ? (
+                        <>
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="font-semibold text-gray-900">
+                              Detected Menu Items ({data.items.length})
+                            </h4>
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              {data.parsed_menu?.source && (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                                  {data.parsed_menu.source}
+                                </span>
+                              )}
+                              <span>Scroll to see all items</span>
+                            </div>
+                          </div>
+
+                          {/* Add New Item Button */}
+                          <div className="mb-4">
+                            <button
+                              onClick={handleAddNewItem}
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                              </svg>
+                              Add New Item Manually
+                            </button>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Click to add an item that the AI didn't detect
+                            </p>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {data.items.map((item) => (
+                              <div key={item.id} id={`item_${item.id}`}>
+                                <ItemCard
+                                  item={item}
+                                  onSave={handleSaveItem}
+                                  onVerify={handleVerifyItem}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <svg className="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012 2v2M7 7h10" />
+                          </svg>
+                          <p className="font-medium">No items detected yet</p>
+                          <p className="text-sm mb-4">Upload an image to see detected items here</p>
+                          
+                          {/* Add manual item button for empty state */}
+                          <button
+                            onClick={handleAddNewItem}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            Add Item Manually
+                          </button>
+                          <p className="text-xs text-gray-400 mt-2">
+                            Or start adding menu items manually
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Show message when JSON parsed but no items found */}
+                      {data?.parsed_menu && (!data?.items || data.items.length === 0) && !data.parse_error && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                          <h4 className="font-semibold text-yellow-800 mb-2">Menu Parsed Successfully</h4>
+                          <p className="text-yellow-700">
+                            The AI response was parsed as JSON, but no menu items were found in the expected structure.
+                            The response might be in a different format than expected.
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
-                
-                {/* Show message when JSON parsed but no items found */}
-                {data?.parsed_menu && (!data?.items || data.items.length === 0) && !data.parse_error && (
-                  <div className="border-t pt-4">
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                      <h4 className="font-semibold text-yellow-800 mb-2">Menu Parsed Successfully</h4>
-                      <p className="text-yellow-700">
-                        The AI response was parsed as JSON, but no menu items were found in the expected structure.
-                        The response might be in a different format than expected.
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Raw Response (collapsible) */}
-                {data.raw_response && data.raw_response !== data.ai_response && (
-                  <details className="bg-gray-100 rounded-lg p-4">
-                    <summary className="font-medium text-gray-700 cursor-pointer">Raw AI Response (Click to expand)</summary>
-                    <pre className="text-xs text-gray-600 mt-2 overflow-x-auto whitespace-pre-wrap">
-                      {data.raw_response}
-                    </pre>
-                  </details>
-                )}
-              </div>
+                  )}
+                </div>
+              </>
             ) : (
               <div className="text-gray-500 text-center py-8">
-                Upload an image to see what the AI can detect
+                <h3 className="text-lg font-semibold mb-4">AI Vision Response</h3>
+                <svg className="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <p>Upload an image to see what the AI can detect</p>
               </div>
             )}
           </div>

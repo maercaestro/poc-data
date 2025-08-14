@@ -22,6 +22,20 @@ export async function updateItem(id, patch) {
   return response.json();
 }
 
+export async function createItem(sourceId, page, itemData) {
+  const response = await fetch(`${API_BASE}/catalog/${sourceId}/page/${page}/items`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(itemData),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to create item: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export async function exportCatalog(sourceId) {
   const response = await fetch(`${API_BASE}/export/${sourceId}`, {
     method: 'POST',
@@ -33,6 +47,41 @@ export async function exportCatalog(sourceId) {
     throw new Error(`Failed to export catalog: ${response.statusText}`);
   }
   return response.json();
+}
+
+// Session-based Chat API functions
+export async function storeMenuData(sessionId, sourceId, page, menuData) {
+  console.log('Storing menu data for session...', { sessionId, sourceId, page });
+  
+  try {
+    const requestBody = {
+      session_id: sessionId,
+      source_id: sourceId,
+      page: page,
+      menu_data: menuData
+    };
+    
+    const response = await fetch(`${API_BASE}/chat/menu`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Store menu error:', errorText);
+      throw new Error(`Failed to store menu data: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    console.log('Menu data stored successfully:', result);
+    return result;
+  } catch (error) {
+    console.error('Error storing menu data:', error);
+    throw error;
+  }
 }
 
 export async function detectItemsInImage(file) {
@@ -118,6 +167,51 @@ export async function extractItemData(file) {
     return result;
   } catch (error) {
     console.error('=== extractItemData API call failed ===');
+    console.error('Error details:', error);
+    throw error;
+  }
+}
+
+export async function chatWithAgent(message, contextData = null) {
+  console.log('=== chatWithAgent API call started ===');
+  console.log('Message:', message);
+  console.log('Context data:', contextData ? 'Provided' : 'None');
+  
+  try {
+    const requestBody = {
+      message: message.trim(),
+      context_data: contextData
+    };
+    
+    console.log('Making POST request to chat API...');
+    
+    const response = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+    
+    console.log('Response received:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Chat API error response:', errorText);
+      throw new Error(`Failed to chat with agent: ${response.statusText} - ${errorText}`);
+    }
+    
+    const result = await response.json();
+    console.log('Chat API result:', JSON.stringify(result, null, 2));
+    console.log('=== chatWithAgent API call completed successfully ===');
+    
+    return result;
+  } catch (error) {
+    console.error('=== chatWithAgent API call failed ===');
     console.error('Error details:', error);
     throw error;
   }
